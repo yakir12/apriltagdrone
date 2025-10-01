@@ -16,8 +16,15 @@ tags = detector.(collect.(imgs))
 
 @assert all(ts -> issorted(ts, by = t -> t.id), tags)
 
+keep = findall(==(4) ∘ length, tags)
+
+tags = tags[keep]
+imgs = imgs[keep]
+
+@assert all(==(4) ∘ length, tags)
+
 function get_p(tags)
-    RowCol.(reshape(stack(getfield.(tags, :p)), 4n))
+    RowCol.(reverse.(reshape(stack(getfield.(tags, :p)), 4n)))
 end
 
 ps = get_p.(tags)
@@ -32,27 +39,97 @@ end
 
 _, ref = findmax(quality, tags)
 
+
+# using ImageView, ImageDraw
+#
+# img = RGB.(imgs[1])
+# for p in ps[1]
+#     i, j = round.(Int, p)
+#     draw!(img, CirclePointRadius(i, j, 5), colorant"red")
+# end
+# imshow(img)
+
+# src = ps[ref]
+# dst = ps[1]
+#
+#
+# h, mask = OpenCV.findHomography(OpenCV.Mat(reshape(reinterpret(Float32, src), 2, 4n, 1)), OpenCV.Mat(reshape(reinterpret(Float32, dst), 2, 4n, 1)))
+# count(iszero, mask)
+#
+# _dst = OpenCV.perspectiveTransform(OpenCV.Mat(reshape(reinterpret(Float32, src), 2, 4n, 1)), h)
+# dst1 = RowCol.(eachslice(_dst, dims = 2))
+# dst .- dst1
+#
+# m = SMatrix{3,3}(reshape(h, 3 ,3))
+# trans = PerspectiveMap() ∘ LinearMap(m') ∘ push1
+# dst1 = trans.(src)
+# dst .- dst1
+#
+#
+# trans = PerspectiveMap() ∘ LinearMap(inv(m')) ∘ push1
+# src1 = trans.(dst)
+# src .- src1
+#
+#
+# h = findHomography(src, dst)
+# trans = PerspectiveMap() ∘ LinearMap(inv(h)) ∘ push1
+# src1 = trans.(dst)
+# src .- src1
+
+
+
+
+#
+#
+# h1, mask = OpenCV.findHomography(OpenCV.Mat(reshape(reinterpret(Float32, src), 2, 4n, 1)), OpenCV.Mat(reshape(reinterpret(Float32, dst), 2, 4n, 1)), 0, 5.0, OpenCV.Mat(reshape(reinterpret(UInt8, mask1), 1, 1, 4n)), 2000, 0.995)
+#
+# h1, mask = OpenCV.findHomography(OpenCV.Mat(reshape(reinterpret(Float32, src), 2, 4n, 1)), OpenCV.Mat(reshape(reinterpret(Float32, dst), 2, 4n, 1)), OpenCV.RANSAC, 5.0)
+#
+# h1, mask = OpenCV.findHomography(OpenCV.Mat(reshape(reinterpret(Float32, src), 2, 4n, 1)), OpenCV.Mat(reshape(reinterpret(Float32, dst), 2, 4n, 1)), OpenCV.RANSAC, 5.0, OpenCV.Mat(reshape(reinterpret(UInt8, mask1), 1, 1, 4n)), 2000, 0.995)
+# count(iszero, mask)
+
 function findHomography(src, dst)
     # mask = Matrix{Float64}(undef, 3, 3)
-    h, mask = OpenCV.findHomography(OpenCV.Mat(reshape(reinterpret(Float32, src), 4n, 2)), OpenCV.Mat(reshape(reinterpret(Float32, dst), 4n, 2)), OpenCV.RANSAC, 5.0)#, OpenCV.Mat(reshape(mask, 1, 3, 3)), 2000, 0.995)
+    h, mask = OpenCV.findHomography(OpenCV.Mat(reshape(reinterpret(Float32, src), 2, 4n, 1)), OpenCV.Mat(reshape(reinterpret(Float32, dst), 2, 4n, 1)))#, OpenCV.Mat(reshape(mask, 1, 3, 3)), 2000, 0.995)
     # h, mask = OpenCV.findHomography(OpenCV.Mat(reshape(reinterpret(Float32, src), 2, 1, 4n)), OpenCV.Mat(reshape(reinterpret(Float32, dst), 2, 1, 4n)), OpenCV.RANSAC, 5.0, OpenCV.Mat(reshape(mask, 1, 3, 3)), 2000, 0.995)
-    SMatrix{3,3}(reshape(h, 3 ,3))
+    SMatrix{3,3}(reshape(h, 3 ,3))'
 end
 
 push1 = Base.Fix2(StaticArrays.push, 1)
 
-src = ps[ref]
-imgws = similar(imgs, Matrix{Gray{N0f8}})
+dst = ps[ref]
+
+mx, Mx = round.(Int, extrema(first.(dst)))
+my, My = round.(Int, extrema(last.(dst)))
+if isodd(Mx - mx + 1)
+    mx -= 1
+end
+if isodd(My - my + 1)
+    my -= 1
+end
+ax = (mx:Mx, my:My)
+
+
+# img = RGB.(imgs[ref])
+# for p in ps[ref]
+#     j, i = round.(Int, p)
+#     draw!(img, CirclePointRadius(i, j, 5), colorant"red")
+# end
+# imshow(img)
+
+
+
+imgws = [Matrix{Gray{N0f8}}(undef, length.(ax)...) for _ in imgs]
 for (i, img) in enumerate(imgs)
     if i == ref
-        imgw = img
+        imgw = img[LinearIndices(ax)]
     else
-        dst = ps[i]
+        src = ps[i]
         h = findHomography(src, dst)
-        trans = StaticArrays.pop ∘ inv(LinearMap(h')) ∘ push1
-        imgw = warp(img, trans, axes(img))
+        trans = PerspectiveMap() ∘ LinearMap(inv(h)) ∘ push1
+        imgw = parent(warp(img, trans, ax))
     end
-    imgws[i] = imgw
+    imgws[i] .= imgw
 end
 
 VideoIO.save("b.mp4", imgws; target_pix_fmt = VideoIO.AV_PIX_FMT_GRAY8)
@@ -63,12 +140,29 @@ VideoIO.save("b.mp4", imgws; target_pix_fmt = VideoIO.AV_PIX_FMT_GRAY8)
 
 
 
-
-
-
-
-
-
+#
+# using Combinatorics
+#
+# dims = (1, 2, 10)
+# src1 = rand(Float32, 2, 10)
+# dst1 = rand(Float32, 2, 10)
+#
+# for d in permutations(dims)
+#     src = OpenCV.Mat(reshape(src1, d...))
+#     dst = OpenCV.Mat(reshape(dst1, d...))
+#     try
+#         h, mask = OpenCV.findHomography(src, dst)#, OpenCV.Mat(reshape(mask, 1, 3, 3)), 2000, 0.995)
+#         @show d, h
+#     catch
+#     end
+# end
+#
+#
+# d = (2, 10, 1)
+# src = OpenCV.Mat(rand(Float32, d...))
+# dst = OpenCV.Mat(rand(Float32, d...))
+# h, mask = OpenCV.findHomography(src, dst)#, OpenCV.Mat(reshape(mask, 1, 3, 3)), 2000, 0.995)
+#
 
 
 
