@@ -4,11 +4,11 @@ using VideoIO, OpenCV, StaticArrays, ImageTransformations
 
 const RowCol = SVector{2, Float32}
 
-n = 4
+n = 6
 
 detector = AprilTagDetector()
 
-file = "a.mp4"
+file = "d.mp4"
 imgs = load(file; target_format = VideoIO.AV_PIX_FMT_GRAY8)
 
 tags = detector.(collect.(imgs))
@@ -16,12 +16,15 @@ tags = detector.(collect.(imgs))
 
 @assert all(ts -> issorted(ts, by = t -> t.id), tags)
 
-keep = findall(==(4) ∘ length, tags)
+# @assert all(==(n) ∘ length, tags)
+
+keep = findall(==(n) ∘ length, tags)
+
 
 tags = tags[keep]
 imgs = imgs[keep]
 
-@assert all(==(4) ∘ length, tags)
+@assert all(==(n) ∘ length, tags)
 
 function get_p(tags)
     RowCol.(reverse.(reshape(stack(getfield.(tags, :p)), 4n)))
